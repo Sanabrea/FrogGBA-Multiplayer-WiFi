@@ -203,7 +203,11 @@ CPU_ALERT_TYPE timer_control_high(u8 timer_number, u32 value)
         // Timer prescaling optimization - RE-ENABLED FOR TESTING
         // Testing to see if this causes timing issues
         // For prescale values 64+ (index 2,3), reduce precision for performance
-        if (prescale_index >= 2 && timer_number >= 2) {
+        // Not while a link session is open: the Wireless Adapter driver of
+        // the games (librfu) times its handshakes with timer 2/3 at 1024
+        // cycles per tick, and this hack makes those timers 32x faster.
+        if (prescale_index >= 2 && timer_number >= 2 &&
+            serial_mode == SERIAL_MODE_DISABLED) {
           tm->prescale = prescale_table[prescale_index] >> 1;  // Half prescale for better performance
         }
 #endif
@@ -341,6 +345,13 @@ u32 update_gba(void)
 
     cpu_ticks += reg[EXECUTE_CYCLES];
 
+    // Link port (only while a link session is open)
+    if (serial_mode != SERIAL_MODE_DISABLED)
+    {
+      if (update_serial(reg[EXECUTE_CYCLES]))
+        irq_raised |= IRQ_SERIAL;
+    }
+
     if (gbc_sound_update != 0)
     {
       update_gbc_sound(cpu_ticks);
@@ -433,6 +444,8 @@ u32 update_gba(void)
 
           process_cheats();
 
+          link_frame_update();
+
           u32 draw_this_frame = skip_next_frame ^ 0x01;
 
           synchronize();
@@ -473,6 +486,12 @@ u32 update_gba(void)
     for (i = 0; i < 4; i++)
     {
       CHECK_TIMER(i);
+    }
+
+    if (serial_mode != SERIAL_MODE_DISABLED)
+    {
+      u32 serial_cycles = serial_next_event();
+      CHECK_COUNT(serial_cycles);
     }
 
     if (dma_cycle_count != 0)
@@ -942,6 +961,8 @@ void quit(void)
   update_backup_immediately();
   save_config_file();
 
+  link_shutdown();
+
   sound_term();
   memory_term();
   cpu_term();
@@ -963,6 +984,7 @@ void reset_gba(void)
   init_memory();
   init_main();
   reset_sound();
+  link_reset_serial();
 }
 
 

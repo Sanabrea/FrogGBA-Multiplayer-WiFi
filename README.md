@@ -1,4 +1,76 @@
-# FrogGBA - TempGBA mod by Prosty
+# 🐸 FrogGBA + Multiplayer WiFi for Pokémon
+
+### Trade and battle between two PSPs, wirelessly. No link cable, router or internet needed.
+
+![Platform](https://img.shields.io/badge/platform-PSP%20(CFW)-0070d1)
+![Link cable](https://img.shields.io/badge/link%20cable-working-2ea44f)
+![Wireless Adapter](https://img.shields.io/badge/Wireless%20Adapter-beta-orange)
+![License](https://img.shields.io/badge/license-GPLv2-blue)
+
+This is a fork of [FrogGBA](https://github.com/tzubertowski/FrogGBA), the fast Game Boy Advance emulator for PSP by Prosty. It adds **multiplayer between two real PSPs over ad-hoc WiFi**. Two consoles in the same room behave as if they were connected with a GBA link cable, or as if each one had a GBA Wireless Adapter plugged in.
+
+The main target is **Pokémon Generation 3**. You can trade and battle with a friend just like in 2004, but on two PSPs.
+
+| What you can do | Games | Status on real PSPs |
+|---|---|---|
+| Cable Club **trades** and **battles** (Pokémon Center 2F) | Ruby, Sapphire, Emerald, FireRed, LeafGreen (and between them) | ✅ Tested: FireRed ↔ FireRed, English and Spanish ROMs |
+| **Union Room** chat, trades and battles (Wireless Adapter) | FireRed, LeafGreen, Emerald | 🧪 Beta. Tested on FireRed: trade, chat, battle |
+| Multiplayer over the link cable | Advance Wars 1 and 2 | ⚙️ Included, not tested on hardware yet |
+
+> **New to this?** Read the step-by-step guide: **[docs/MULTIPLAYER_GUIDE.md](docs/MULTIPLAYER_GUIDE.md)**
+
+## Download
+
+**→ [Download the multiplayer build from the Releases page](https://github.com/Sanabrea/FrogGBA-Multiplayer-WiFi/releases) ←**
+
+- **New install:** unzip and copy the `PSP` folder to the root of the Memory Stick of **each** PSP. As with the original FrogGBA, put your `gba_bios.bin` in `PSP/GAME/FrogGBA/`. A PSP with custom firmware (CFW) is required.
+- **Already using FrogGBA:** just replace `PSP/GAME/FrogGBA/EBOOT.PBP`. Your saves, states and settings are kept.
+
+## Quick start (Pokémon)
+
+1. Install this build of FrogGBA on **both** PSPs. Both need the **same version**.
+2. Turn the **WLAN switch on** on both PSPs and load your Pokémon game. Save in-game.
+3. On both PSPs, open the FrogGBA menu and choose **Link cable (ad-hoc)**. Leave **Mode: Auto**.
+4. On one PSP choose **Connect as HOST**, on the other **Connect as GUEST**. When you see **Connected!** the menu closes by itself.
+5. In both games, go up to the **2nd floor of the Pokémon Center** and talk to the **Cable Club** attendant. Trade or battle!
+
+For the Union Room (wireless), choose **Mode: Wireless (beta)** on both PSPs and connect **before** going up to the 2nd floor. See the [guide](docs/MULTIPLAYER_GUIDE.md#wireless-adapter-union-room-beta).
+
+## Documentation
+
+| Document | What's inside |
+|---|---|
+| [Multiplayer guide](docs/MULTIPLAYER_GUIDE.md) | Requirements, installation, step-by-step connection, every mode, menu reference, troubleshooting, FAQ |
+| [How it works](docs/HOW_IT_WORKS.md) | Architecture, the ad-hoc transport, the reliable channel, cable and Wireless Adapter emulation, flow control, saving |
+| [Debug log](docs/DEBUG_LOG.md) | How to record `link_log.txt` and how to read it |
+| [Building and testing](docs/BUILDING_AND_TESTING.md) | Compiling for PSP, and the PC simulators used to test the link without hardware |
+| [Multiplayer changelog](docs/CHANGELOG_MULTIPLAYER.md) | What changed in each test build and why |
+
+## Highlights
+
+- **Wireless link between 2 PSPs** using the PSP's own ad-hoc WiFi. Nothing else is required.
+- **Pokémon cable emulation that tolerates WiFi lag.** The protocol is emulated at a higher level instead of sending each raw transfer (a real cable needs microsecond timing that WiFi can't give).
+- **GBA Wireless Adapter emulation** (beta) for the Union Room, with flow control tuned to what the games can actually digest.
+- **Reliable, ordered transport** on top of ad-hoc datagrams: selective acknowledgements, adaptive retransmission timeout and packing several messages per packet.
+- **Background saving while linked.** Writing the save to the Memory Stick no longer freezes the console in the middle of a link session.
+- **Built-in diagnostics.** An optional `link_log.txt` records every connection step, protocol event and a status line per second.
+
+## Credits
+
+- **FrogGBA** by Prosty ([tzubertowski](https://github.com/tzubertowski)), based on TempGBA by Nebuleon, Normmatt and BassAceGold, TempGBA4PSP-mod, and gameplaySP kai by Exophase and takka.
+- **Link cable and Wireless Adapter protocol emulation** ported from [gpSP for libretro](https://github.com/libretro/gpsp) by David Guillen Fandos (`serial.c`, `serial_proto.c`, `rfu.c`).
+- **Multiplayer WiFi port for PSP** (ad-hoc transport, reliable channel, flow control, background saving, diagnostics, test tools): this fork.
+- Protocol research helped by the [pret](https://github.com/pret) decompilations of Pokémon FireRed and Emerald.
+
+Licensed under the GNU GPL v2 or later, like the code it is based on (see [LICENSE](LICENSE)).
+
+---
+
+# Original FrogGBA README
+
+> The text below is the original FrogGBA README, kept for reference. Its download link points to the original emulator, **without** multiplayer. For the multiplayer build, use [this fork's Releases](https://github.com/Sanabrea/FrogGBA-Multiplayer-WiFi/releases).
+
+## FrogGBA - TempGBA mod by Prosty
 
 ## Download & Installation
 ![FrogGBA Icon](source/res/ICON0.png)

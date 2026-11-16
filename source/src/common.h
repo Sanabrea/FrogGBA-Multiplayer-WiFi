@@ -206,6 +206,9 @@ typedef u32 FIXED08_24;
 #include "input.h"
 #include "sound.h"
 #include "main.h"
+#include "serial.h"
+#include "link.h"
+#include "link_log.h"
 
 #include "ku_bridge.h"
 #include "exception.h"

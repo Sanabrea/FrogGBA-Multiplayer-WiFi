@@ -1847,11 +1847,22 @@ CPU_ALERT_TYPE write_io_register16(u32 address, u32 value)
 
     // SIOCNT
     case 0x128:
+      // While a link session is open the port is emulated over the network,
+      // otherwise keep the original (unconnected) behaviour.
+      if (serial_mode != SERIAL_MODE_DISABLED)
+        return write_siocnt(value);
       return sio_control(value);
 
     // P1
     case 0x130:
       /* Read only */
+      break;
+
+    // RCNT
+    case 0x134:
+      if (serial_mode != SERIAL_MODE_DISABLED)
+        return write_rcnt(value);
+      ADDRESS16(io_registers, 0x134) = value;
       break;
 
     // IE - Interrupt Enable Register
@@ -3233,6 +3244,25 @@ s32 load_backup(char *name)
     return -1;
 }
 
+static u32 backup_file_size(void)
+{
+  switch (backup_type)
+  {
+    case BACKUP_SRAM:
+      return sram_size;
+
+    case BACKUP_FLASH:
+      return flash_size;
+
+    case BACKUP_EEPROM:
+      return eeprom_size;
+
+    default:
+    case BACKUP_NONE:
+      return 0x8000;
+  }
+}
+
 static u32 save_backup(char *name)
 {
   SceUID backup_file;
@@ -3250,26 +3280,7 @@ static u32 save_backup(char *name)
 
     if (FILE_CHECK_VALID(backup_file))
     {
-      switch (backup_type)
-      {
-        case BACKUP_SRAM:
-          backup_size = sram_size;
-          break;
-
-        case BACKUP_FLASH:
-          backup_size = flash_size;
-          break;
-
-        case BACKUP_EEPROM:
-          backup_size = eeprom_size;
-          break;
-
-        default:
-        case BACKUP_NONE:
-          backup_size = 0x8000;
-          break;
-      }
-
+      backup_size = backup_file_size();
       FILE_WRITE(backup_file, gamepak_backup, backup_size);
       FILE_CLOSE(backup_file);
     }
@@ -3280,6 +3291,100 @@ static u32 save_backup(char *name)
   return backup_size;
 }
 
+/* FrogGBA link: writing the save file to the Memory Stick takes from half a
+ * second to several seconds, and done from the emulation thread it freezes
+ * the game. A link partner sees that as a dead console: Pokemon saves right
+ * after link battles and trades, on both consoles at once, so one of them
+ * was left "saving" for seconds while the other one was already done.
+ * While a link session is active the file is written by a background thread
+ * from a snapshot of the save memory, and the game keeps running. */
+static u8 ALIGN_DATA backup_io_snapshot[1024 * 128];
+static char backup_io_path[MAX_PATH];
+static u32 backup_io_size;
+static SceUID backup_io_thread = -1;
+static SceUID backup_io_sema = -1;
+static volatile u32 backup_io_busy = 0;
+
+static int backup_io_thread_func(SceSize args, void *argp)
+{
+  SceUID backup_file;
+
+  (void)args;
+  (void)argp;
+
+  while (sceKernelWaitSema(backup_io_sema, 1, NULL) >= 0)
+  {
+    scePowerLock(0);
+
+    FILE_OPEN(backup_file, backup_io_path, WRITE);
+
+    if (FILE_CHECK_VALID(backup_file))
+    {
+      FILE_WRITE(backup_file, backup_io_snapshot, backup_io_size);
+      FILE_CLOSE(backup_file);
+    }
+
+    scePowerUnlock(0);
+    __asm__ __volatile__("" ::: "memory");   // Snapshot fully used before
+    backup_io_busy = 0;
+  }
+
+  return 0;
+}
+
+// 1: write started, 0: not possible (write it the old way), -1: busy, retry.
+static s32 save_backup_async(char *name)
+{
+  if (backup_type == BACKUP_NONE)
+    return 1;
+
+  if (backup_io_thread < 0)
+  {
+    if (backup_io_sema < 0)
+      backup_io_sema = sceKernelCreateSema("Backup IO semaphore", 0, 0, 1, 0);
+    if (backup_io_sema < 0)
+      return 0;
+
+    // Above the emulator (0x20): it mostly sleeps waiting for the
+    // Memory Stick, and must not wait for the emulator to yield.
+    backup_io_thread = sceKernelCreateThread("Backup IO thread",
+                                             backup_io_thread_func,
+                                             0x1F,
+                                             0x4000,
+                                             0,
+                                             NULL);
+    if (backup_io_thread < 0)
+      return 0;
+
+    sceKernelStartThread(backup_io_thread, 0, 0);
+  }
+
+  if (backup_io_busy)
+    return -1;
+  __asm__ __volatile__("" ::: "memory");     // Single core: a compiler barrier is enough
+
+  backup_io_size = backup_file_size();
+  memcpy(backup_io_snapshot, gamepak_backup, backup_io_size);
+  sprintf(backup_io_path, "%s%s", dir_save, name);
+
+  backup_io_busy = 1;
+  sceKernelSignalSema(backup_io_sema, 1);
+
+  return 1;
+}
+
+// Waits for a background write (if any) to finish.
+static void backup_io_wait(void)
+{
+  u32 waited_ms = 0;
+
+  while (backup_io_busy && (waited_ms < 15000))
+  {
+    sceKernelDelayThread(10 * 1000);
+    waited_ms += 10;
+  }
+}
+
 void update_backup(void)
 {
   if (backup_update != (WRITE_BACKUP_DELAY + 1))
@@ -3287,13 +3392,34 @@ void update_backup(void)
 
   if (backup_update == 0)
   {
-    save_backup(backup_filename);
+    if (link_is_active())
+    {
+      s32 ret = save_backup_async(backup_filename);
+
+      if (ret < 0)
+      {
+        backup_update = 1;      // The previous write is still going: next frame
+        return;
+      }
+
+      if (ret == 0)
+        save_backup(backup_filename);
+    }
+    else
+    {
+      backup_io_wait();
+      save_backup(backup_filename);
+    }
+
     backup_update = WRITE_BACKUP_DELAY + 1;
   }
 }
 
 void update_backup_immediately(void)
 {
+  // A background write must be finished before quitting or writing again.
+  backup_io_wait();
+
   if (backup_update != (WRITE_BACKUP_DELAY + 1))
   {
     save_backup(backup_filename);
@@ -3673,6 +3799,7 @@ s32 load_gamepak(char *name)
 	//load_backup_id();//up order to fix no game_code
     load_game_config(game_title, game_code, maker_code);
     load_game_config_file();
+    link_game_loaded(game_code, game_title);
 
 	load_backup_id();
     change_ext(gamepak_filename, backup_filename, ".sav");
@@ -3785,10 +3912,13 @@ void load_state(char *savestate_filename)
     oam_update = 1;
     gbc_sound_update = 1;
     reg[CHANGED_PC_STATUS] = 1;
+
+    // The serial devices are not part of the savestate: restart them.
+    link_reset_serial();
   }
 
   scePowerUnlock(0);
-  
+
   // Restore overlay if we freed it earlier
   if (need_restore_overlay) {
     load_overlay(saved_overlay_name);

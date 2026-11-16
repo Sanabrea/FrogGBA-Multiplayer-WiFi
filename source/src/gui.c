@@ -314,6 +314,58 @@ MenuType saving_menu_global = {
   2
 };
 
+// Link (ad-hoc) submenu
+static const char *link_mode_options[LINK_MODE_COUNT] =
+{
+  "Auto", "Wireless (beta)", "Cable (Pokemon)", "Cable (Adv. Wars 1)", "Cable (Adv. Wars 2)"
+};
+
+static const char *link_log_options[2] = { "Off", "On (link_log.txt)" };
+
+static void menu_link_host(void)
+{
+  link_connect(1);
+}
+
+static void menu_link_guest(void)
+{
+  link_connect(0);
+}
+
+static void menu_link_disconnect(void)
+{
+  link_disconnect();
+}
+
+// Called every refresh while the link submenu is shown: draws the status.
+static void link_menu_draw_status(void)
+{
+  print_string("One PSP: HOST", MENU_LIST_POS_X, (7 * FONTHEIGHT) + 28, COLOR_HELP_TEXT, BG_NO_FILL);
+  print_string("The other: GUEST", MENU_LIST_POS_X, (8 * FONTHEIGHT) + 28, COLOR_HELP_TEXT, BG_NO_FILL);
+  print_string("WLAN switch ON", MENU_LIST_POS_X, (9 * FONTHEIGHT) + 28, COLOR_HELP_TEXT, BG_NO_FILL);
+  print_string("Pokemon: Auto", MENU_LIST_POS_X, (11 * FONTHEIGHT) + 28, COLOR_HELP_TEXT, BG_NO_FILL);
+  print_string("= Cable (Pokemon)", MENU_LIST_POS_X, (12 * FONTHEIGHT) + 28, COLOR_HELP_TEXT, BG_NO_FILL);
+
+  print_string("Status:", MENU_LIST_POS_X, (14 * FONTHEIGHT) + 28, COLOR_HELP_TEXT, BG_NO_FILL);
+  print_string(link_status_line1(), MENU_LIST_POS_X, (15 * FONTHEIGHT) + 28, COLOR_ACTIVE_ITEM, BG_NO_FILL);
+  print_string(link_status_line2(), MENU_LIST_POS_X, (16 * FONTHEIGHT) + 28, COLOR_INACTIVE_ITEM, BG_NO_FILL);
+}
+
+MenuOptionType link_options_global[5] = {
+  STRING_SELECTION_OPTION(NULL, "Mode: %s", link_mode_options, &option_link_mode, LINK_MODE_COUNT, MSG_BLANK, 0),
+  STRING_SELECTION_OPTION(NULL, "Debug log: %s", link_log_options, &option_link_log, 2, MSG_BLANK, 1),
+  ACTION_OPTION(menu_link_host, NULL, "Connect as HOST", MSG_BLANK, 3),
+  ACTION_OPTION(menu_link_guest, NULL, "Connect as GUEST", MSG_BLANK, 4),
+  ACTION_OPTION(menu_link_disconnect, NULL, "Disconnect", MSG_BLANK, 5),
+};
+
+MenuType link_menu_global = {
+  link_menu_draw_status, // init_function (called every refresh)
+  NULL,                  // passive_function
+  link_options_global,
+  5
+};
+
 // Initialize overlays at emulator boot - called from main.c
 void init_overlays_at_boot(void)
 {
@@ -2145,6 +2197,8 @@ u32 menu(void)
 
     SUBMENU_OPTION(&overlay_menu_global, MSG[MSG_MAIN_MENU_OVERLAY], MSG_MAIN_MENU_HELP_OVERLAY, 11),
 
+    SUBMENU_OPTION(&link_menu_global, "Link cable (ad-hoc)", MSG_BLANK, 12),
+
     ACTION_OPTION(NULL, NULL, MSG[MSG_MAIN_MENU_7], MSG_MAIN_MENU_HELP_7, 13),
 
     ACTION_OPTION(NULL, NULL, MSG[MSG_MAIN_MENU_8], MSG_MAIN_MENU_HELP_8, 15),
@@ -2233,6 +2287,8 @@ u32 menu(void)
 
   while (repeat)
   {
+    link_menu_tick();
+
     clear_screen(COLOR15_TO_32(COLOR_BG));
 
     if ((counter % 30) == 0)
@@ -2438,6 +2494,12 @@ u32 menu(void)
       case CURSOR_BACK:
       case CURSOR_NONE:
         break;
+    }
+
+    if (link_request_menu_exit)
+    {
+      link_request_menu_exit = 0;
+      menu_exit();
     }
 
   } /* end while */
@@ -2726,6 +2788,12 @@ s32 save_config_file(void)
       file_options[25 + i] = gamepad_config_map[i];
     }
 
+    // Slot 41 was unused: store the link mode with a tag so old config
+    // files (with garbage there) are not misread.
+    // Bit 8 set = debug log disabled (so older files default to enabled).
+    file_options[41] = 0x4C4B0000 | (option_link_mode & 0xFF) |
+                       (option_link_log ? 0 : 0x100);
+
     FILE_WRITE_ARRAY(config_file, file_options);
     FILE_CLOSE(config_file);
 
@@ -2869,6 +2937,17 @@ s32 load_config_file(void)
 
       if ((enable_home_menu == 0) && (menu_button == -1))
         gamepad_config_map[0] = BUTTON_ID_MENU;
+
+      if ((file_options[41] & 0xFFFF0000) == 0x4C4B0000)
+      {
+        option_link_mode = (file_options[41] & 0xFF) % LINK_MODE_COUNT;
+        option_link_log = (file_options[41] & 0x100) ? 0 : 1;
+      }
+      else
+      {
+        option_link_mode = LINK_MODE_AUTO;
+        option_link_log = 1;
+      }
 
       FILE_CLOSE(config_file);
     }
